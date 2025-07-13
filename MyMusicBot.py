@@ -3,15 +3,17 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.constants import ParseMode
 import logging
 import os
+import asyncio
+from aiohttp import web
 
 # Налаштування логування
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Налаштування
-TOKEN = os.getenv("TELEGRAM_TOKEN", "8185836155:AAG9-wUl7nYqkVPlNgcjmxL3Zs4akSEGiI0")  # Токен із змінної середовища
-CHANNEL_ID = os.getenv("CHANNEL_ID", "-1001358165457")  # ID каналу
-DEFAULT_LINK_TEXT = "Слухати на <a href='https://spotify.com/your-link'>Spotify</a>"  # Текст за замовчуванням
+TOKEN = os.getenv("TELEGRAM_TOKEN", "8185836155:AAG9-wUl7nYqkVPlNgcjmxL3Zs4akSEGiI0")
+CHANNEL_ID = os.getenv("CHANNEL_ID", "-1001358165457")
+DEFAULT_LINK_TEXT = "Слухати на <a href='https://spotify.com/your-link'>Spotify</a>"
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -49,7 +51,7 @@ async def set_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML
     )
 
-# Обробка текстових повідомлень для введення тексту з посиланням
+# Обробка текстових повідомлень
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('awaiting_text', False):
         logger.info(f"Отримано текст від {update.message.chat_id}")
@@ -87,30 +89,45 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Помилка при публікації: {str(e)}")
         await update.message.reply_text(f"Помилка при публікації: {str(e)}")
 
+# Фейковий HTTP-сервер для Render Web Service
+async def handle_http_request(request):
+    return web.Response(text="Bot is running")
+
+async def run_http_server():
+    app = web.Application()
+    app.add_routes([web.get('/', handle_http_request)])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+
 # Головна функція
-def main():
+async def main():
     logger.info("Запуск бота...")
     try:
-        # Створюємо додаток
-        app = Application.builder().token(TOKEN).build()
+        # Створюємо Telegram-додаток
+        telegram_app = Application.builder().token(TOKEN).build()
         
         # Налаштування меню команд
         bot = Bot(TOKEN)
-        bot.set_my_commands([
+        await bot.set_my_commands([
             BotCommand("start", "Запустити бота і задати текст із посиланням"),
             BotCommand("settext", "Змінити текст і URL для постів")
         ])
         
         # Додавання обробників
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("settext", set_text))
-        app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        telegram_app.add_handler(CommandHandler("start", start))
+        telegram_app.add_handler(CommandHandler("settext", set_text))
+        telegram_app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
+        telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         
-        # Запуск бота
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        # Запуск HTTP-сервера і Telegram-бота одночасно
+        await asyncio.gather(
+            run_http_server(),
+            telegram_app.run_polling(allowed_updates=Update.ALL_TYPES)
+        )
     except Exception as e:
         logger.error(f"Помилка запуску бота: {str(e)}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
