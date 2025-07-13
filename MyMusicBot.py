@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # Налаштування
 TOKEN = os.getenv("TELEGRAM_TOKEN", "8185836155:AAG9-wUl7nYqkVPlNgcjmxL3Zs4akSEGiI0")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "-1001358165457")
-DEFAULT_LINK_TEXT = "Слухати на <a href='https://spotify.com/your-link'>Spotify</a>"
+DEFAULT_LINK_TEXT = " <a href='https://t.me/blastmusics'>BlastMusic</a>"
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
