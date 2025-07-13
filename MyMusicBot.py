@@ -3,8 +3,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.constants import ParseMode
 import logging
 import os
-import asyncio
-from aiohttp import web
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # Налаштування логування
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -90,44 +90,47 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Помилка при публікації: {str(e)}")
 
 # Фейковий HTTP-сервер для Render Web Service
-async def handle_http_request(request):
-    return web.Response(text="Bot is running")
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Bot is running")
 
-async def run_http_server():
-    app = web.Application()
-    app.add_routes([web.get('/', handle_http_request)])
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
-    await site.start()
+def run_http_server():
+    port = int(os.getenv("PORT", 8080))  # Render передає порт через змінну PORT
+    server_address = ('', port)
+    httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
+    logger.info(f"Запуск HTTP-сервера на порту {port}...")
+    httpd.serve_forever()
 
-# Головна функція
-async def main():
-    logger.info("Запуск бота...")
+# Telegram-бот
+def run_telegram_bot():
+    logger.info("Запуск Telegram-бота...")
     try:
-        # Створюємо Telegram-додаток
-        telegram_app = Application.builder().token(TOKEN).build()
-        
-        # Налаштування меню команд
+        app = Application.builder().token(TOKEN).build()
         bot = Bot(TOKEN)
-        await bot.set_my_commands([
+        bot.set_my_commands([
             BotCommand("start", "Запустити бота і задати текст із посиланням"),
             BotCommand("settext", "Змінити текст і URL для постів")
         ])
-        
-        # Додавання обробників
-        telegram_app.add_handler(CommandHandler("start", start))
-        telegram_app.add_handler(CommandHandler("settext", set_text))
-        telegram_app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
-        telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-        
-        # Запуск HTTP-сервера і Telegram-бота одночасно
-        await asyncio.gather(
-            run_http_server(),
-            telegram_app.run_polling(allowed_updates=Update.ALL_TYPES)
-        )
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("settext", set_text))
+        app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
     except Exception as e:
-        logger.error(f"Помилка запуску бота: {str(e)}")
+        logger.error(f"Помилка запуску Telegram-бота: {str(e)}")
+
+# Головна функція
+def main():
+    # Запускаємо HTTP-сервер у окремому потоці
+    http_thread = threading.Thread(target=run_http_server)
+    http_thread.daemon = True  # Завершується, коли основна програма завершується
+    http_thread.start()
+
+    # Запускаємо Telegram-бот у головному потоці
+    run_telegram_bot()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
